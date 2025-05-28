@@ -17,9 +17,9 @@ def allowed_file(filename):
 
 def parse_llm_response(full_response: str | None) -> tuple[str, str | None]:
     """
-    Separates thinking content (within <thinking>...</thinking>) from the user-facing answer.
-    Handles potential variations in tagging and whitespace, case-insensitivity.
-    Also handles nested tags or attributes within the thinking tag itself.
+    Separates thinking content (within <think...>...</think> or <thinking...>...</thinking>) 
+    from the user-facing answer.
+    Handles potential variations in tagging and whitespace, case-insensitivity, and attributes.
 
     Args:
         full_response (str | None): The complete response string from the LLM.
@@ -46,13 +46,14 @@ def parse_llm_response(full_response: str | None) -> tuple[str, str | None]:
 
     # Regex explanation:
     # \s*                         : Matches optional leading whitespace
-    # <(?i:thinking)\b[^>]*>     : Matches opening tag <thinking...> case-insensitively, allowing attributes like <thinking plan="step1">. \b ensures "thinking" is a whole word.
+    # <(?i:think(?:ing)?)\b[^>]*> : Matches opening tag <think...> or <thinking...> case-insensitively,
+    #                               allowing attributes. \b ensures "think" or "thinking" is a whole word.
+    #                               (?:ing)? makes "ing" optional.
     # (.*?)                     : Captures the content inside (non-greedy) - Group 1
-    # </(?i:thinking)>          : Matches the corresponding closing tag </thinking> case-insensitively
+    # </(?i:think(?:ing)?)>      : Matches the corresponding closing tag </think> or </thinking> case-insensitively
     # \s*                         : Matches optional trailing whitespace
     # re.DOTALL                 : Makes '.' match newline characters
-    # Use non-capturing group (?:...) for the tags themselves if needed, but capture group 1 is for content.
-    pattern = re.compile(r"\s*<(?i:thinking)\b[^>]*>(.*?)</(?i:thinking)>\s*", re.DOTALL)
+    pattern = re.compile(r"\s*<(?i:think(?:ing)?)\b[^>]*>(.*?)</(?i:think(?:ing)?)>\s*", re.DOTALL)
 
     # Find the first match
     thinking_match = pattern.search(full_response)
@@ -67,13 +68,11 @@ def parse_llm_response(full_response: str | None) -> tuple[str, str | None]:
         user_answer = pattern.sub('', full_response, count=1).strip()
         # logger.debug("Removed thinking block from user answer.")
 
-        # Check if the user_answer is now empty, meaning the thinking block was the only content
         if not user_answer and thinking_content is not None:
-            logger.warning("LLM response consisted *only* of the <thinking> block. User answer is empty.")
-            # Keep user_answer as "" or set a specific message? Let's keep it empty for now, handled in caller.
+            logger.warning("LLM response consisted *only* of the <thinking> or <think> block. User answer is empty.")
 
     else:
-        # logger.debug("No <thinking> tags found in LLM response.")
+        # logger.debug("No <thinking> or <think> tags found in LLM response.")
         user_answer = full_response.strip() # Ensure stripping even if no tags found
 
     return user_answer, thinking_content
@@ -178,9 +177,9 @@ def escape_html(unsafe_str: str | None) -> str:
             return ""
 
     # Perform replacements
-    return unsafe_str.replace('&', '&') \
-                     .replace('<', '<') \
-                     .replace('>', '>') \
-                     .replace('"', '"') \
-                     .replace("'",  '\'') # Use HTML entity for single quote
+    return unsafe_str.replace('&', '&amp;') \
+                     .replace('<', '&lt;') \
+                     .replace('>', '&gt;') \
+                     .replace('"', '&quot;') \
+                     .replace("'", '&#39;') # Use HTML entity for single quote
 # --- END OF FILE utils.py ---

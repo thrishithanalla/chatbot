@@ -1290,10 +1290,12 @@ if __name__ == '__main__':
 `backend/config.py`
 
 ```python
+# backend/config.py
 import os
 from dotenv import load_dotenv
 import logging
 from langchain.prompts import PromptTemplate # Import PromptTemplate
+from datetime import timedelta # For JWT expiration
 
 # Load environment variables from .env file in the same directory
 dotenv_path = os.path.join(os.path.dirname(__file__), '.env')
@@ -1303,7 +1305,7 @@ load_dotenv(dotenv_path=dotenv_path)
 
 # Ollama Configuration
 OLLAMA_BASE_URL = os.getenv('OLLAMA_BASE_URL', 'http://localhost:11434')
-OLLAMA_MODEL = os.getenv('OLLAMA_MODEL', 'deepseek-r1') # Default model for generation/analysis
+OLLAMA_MODEL = os.getenv('OLLAMA_MODEL', 'qwen2.5:14b-instruct') # Default model for generation/analysis
 OLLAMA_EMBED_MODEL = os.getenv('OLLAMA_EMBED_MODEL', 'mxbai-embed-large') # Default model for embeddings
 # Optional: Increase Ollama request timeout (in seconds) if needed for long operations
 OLLAMA_REQUEST_TIMEOUT = int(os.getenv('OLLAMA_REQUEST_TIMEOUT', 180)) # Default 3 minutes
@@ -1312,9 +1314,31 @@ OLLAMA_REQUEST_TIMEOUT = int(os.getenv('OLLAMA_REQUEST_TIMEOUT', 180)) # Default
 backend_dir = os.path.dirname(__file__)
 FAISS_FOLDER = os.path.join(backend_dir, os.getenv('FAISS_FOLDER', 'faiss_store'))
 UPLOAD_FOLDER = os.path.join(backend_dir, os.getenv('UPLOAD_FOLDER', 'uploads'))
+# DATABASE_NAME and DATABASE_PATH are likely for a previous SQLite setup, keeping for reference but not used with MongoDB
 DATABASE_NAME = os.getenv('DATABASE_NAME', 'chat_history.db')
 DATABASE_PATH = os.path.join(backend_dir, DATABASE_NAME)
 DEFAULT_PDFS_FOLDER = os.path.join(backend_dir, os.getenv('DEFAULT_PDFS_FOLDER', 'default_pdfs'))
+
+
+# --- MongoDB Configuration ---
+MONGO_URI = os.getenv('MONGO_URI', 'mongodb://localhost:27017/')
+MONGO_DB_NAME = os.getenv('MONGO_DB_NAME', 'ai_tutor_db')
+# MongoDB Collection Names (moved from database.py for central config)
+MONGO_USERS_COLLECTION = "users"
+MONGO_DOCUMENTS_COLLECTION = "documents" # To store metadata about user uploaded documents
+MONGO_CHAT_SESSIONS_COLLECTION = "chat_sessions" # New collection for session metadata/summaries
+MONGO_CHAT_MESSAGES_COLLECTION = "chat_messages" # New collection for message history
+
+
+# --- JWT Configuration ---
+JWT_SECRET_KEY = os.getenv('JWT_SECRET_KEY', '0376a14d75ebca84120a8c73f0fe6886ea2cd790ec0fd6bac71362fc10e4025564730b6fe1901c2dde03bc27c3864aa96979c8ea93bb6e48db2accda38f9d430')
+JWT_ALGORITHM = os.getenv('JWT_ALGORITHM', 'HS256')
+JWT_EXPIRATION_MINUTES = int(os.getenv('JWT_EXPIRATION_MINUTES', 1440)) # Default 24 hours (corrected from 5440)
+JWT_ACCESS_TOKEN_EXPIRES = timedelta(minutes=JWT_EXPIRATION_MINUTES)
+
+# --- Application Specific Constants ---
+GLOBAL_DOC_USER_ID_MARKER = "GLOBAL_DEFAULT_DOCS"
+
 
 # File Handling
 ALLOWED_EXTENSIONS = {'pdf'}
@@ -1326,6 +1350,12 @@ MULTI_QUERY_COUNT = int(os.getenv('MULTI_QUERY_COUNT', 3)) # Number of sub-quest
 
 # Analysis Configuration
 ANALYSIS_MAX_CONTEXT_LENGTH = int(os.getenv('ANALYSIS_MAX_CONTEXT_LENGTH', 8000)) # Max chars for analysis context
+
+# Chat & History Configuration
+# Token limit for ConversationSummaryBufferMemory. Adjust based on LLM context window and desired history length.
+# A value around 500-1000 tokens is often a good balance. Total context is summary + RAG + prompt.
+SUMMARY_BUFFER_TOKEN_LIMIT = int(os.getenv('SUMMARY_BUFFER_TOKEN_LIMIT', 800))
+
 
 # Logging Configuration
 LOGGING_LEVEL_NAME = os.getenv('LOGGING_LEVEL', 'INFO').upper()
@@ -1349,14 +1379,18 @@ Generated Search Queries:"""
 )
 
 
-
 # RAG Synthesis Prompt (Mandatory Thinking)
 SYNTHESIS_PROMPT_TEMPLATE = PromptTemplate(
-    input_variables=["query", "context"],
-    template="""You are an Faculty for engineering students who has inde[th klnowledge in all engineering subjects and am Expert for an academic audience, ranging from undergraduates to PhD scholars. . Your goal is to answer the user's query based on the provided context document chunks, augmented with your general knowledge when necessary. You have to Provide detailed, technical, and well-structured responses suitable for this audience. Use precise terminology, include relevant concepts, algorithms, and applications, and organize your response with sections or bullet points where appropriate.
-                
+    # Added chat_history input variable
+    input_variables=["query", "context", "chat_history"],
+    template="""You are an Faculty for engineering students who has inde[th klnowledge in all engineering subjects and am Expert for an academic audience, ranging from undergraduates to PhD scholars. Your goal is to answer the user's query based on the provided context document chunks, augmented with your general knowledge when necessary. You have to Provide detailed, technical, and well-structured responses suitable for this audience. Use precise terminology, include relevant concepts, algorithms, and applications, and organize your response with sections or bullet points where appropriate.
 
-**TASK:** Respond to the user's query using the provided context and your general knowledge.
+Your conversation history with the user is provided below. Use it to maintain context and provide relevant follow-up.
+
+**CONVERSATION HISTORY:**
+{chat_history}
+
+**TASK:** Respond to the user's query using the provided context, the conversation history, and your general knowledge.
 
 **USER QUERY:**
 "{query}"
@@ -1369,9 +1403,9 @@ SYNTHESIS_PROMPT_TEMPLATE = PromptTemplate(
 **INSTRUCTIONS:**
 
 **STEP 1: THINKING PROCESS (MANDATORY):**
-*   **CRITICAL:** Before writing the final answer, first articulate your step-by-step reasoning process for how you will arrive at the answer. Explain how you will use the context and potentially supplement it with general knowledge.
-*   Use a step-by-step Chain of Thought (CoT) approach to arrive at a logical and accurate answer, and include your reasoning in a <think> tag.Enclose this entire reasoning process   *exclusively* within `<thinking>` and `</thinking>` tags.
-*   Example: `<thinking>The user asks about X. Context [1] defines X. Context [3] gives an example Z. Context [2] seems less relevant. The context doesn't cover aspect Y, so I will synthesize information from [1] and [3] and then add general knowledge about Y, clearly indicating it's external information.</thinking>`
+*   **CRITICAL:** Before writing the final answer, first articulate your step-by-step reasoning process for how you will arrive at the answer. Explain how you will use the context, the conversation history, and potentially supplement it with general knowledge.
+*   Use a step-by-step Chain of Thought (CoT) approach to arrive at a logical and accurate answer, and include your reasoning in a <think> tag. Enclose this entire reasoning process   *exclusively* within `<thinking>` and `</thinking>` tags.
+*   Example: `<thinking>The user's current query is X. Checking history, they previously asked about Y. The provided context [1] discusses X. I will use the context to answer X, incorporating the history to ensure consistency and potentially relate X back to Y. I will cite [1] where used.</thinking>`
 *   **DO NOT** put any text before `<thinking>` or after `</thinking>` except for the final answer.
 
 **STEP 2: FINAL ANSWER (After the `</thinking>` tag):**
@@ -1387,9 +1421,9 @@ SYNTHESIS_PROMPT_TEMPLATE = PromptTemplate(
 <thinking>"""
 )
 
-# Analysis Prompts (Thinking Recommended)
+# This definition MUST come before ANALYSIS_PROMPTS
 _ANALYSIS_THINKING_PREFIX = """**STEP 1: THINKING PROCESS (Recommended):**
-*   Before generating the analysis, briefly outline your plan in `<thinking>` tags. Example: `<thinking>Analyzing for FAQs. Will scan for key questions and answers presented in the text.</thinking>`
+*   Before generating the analysis, briefly outline your plan in `<thinking>` tags. Example: `<thinking>Analyzing for Mindmap. Will identify the central theme, main branches, and sub-topics from the text to structure a Mermaid mindmap.</thinking>`
 *   If you include thinking, place the final analysis *after* the `</thinking>` tag.
 
 **STEP 2: ANALYSIS OUTPUT:**
@@ -1433,34 +1467,39 @@ ANALYSIS_PROMPTS = {
     "mindmap": PromptTemplate(
         input_variables=["doc_text_for_llm"],
         template=_ANALYSIS_THINKING_PREFIX + """
-**TASK:** Generate a hierarchical mind map structure representing key concepts from the provided text. Output this structure using Mermaid.js graph syntax (specifically `graph TD` for a top-down flowchart).
+**TASK:** Generate a **SIMPLE HIERARCHICAL** mind map diagram using **Mermaid.js MINDMAP syntax**.
+The mind map **MUST ONLY** represent the key topics and their sub-topics as found **DIRECTLY in the provided document text**.
+Do **NOT** include any external knowledge, code snippets, or complex phrasing not present in the document.
 
-**OUTPUT FORMAT (Strict):**
-*   **CRITICAL INSTRUCTION:** If you include a thinking process within `<thinking>...</thinking>` tags, the Mermaid graph definition (`graph TD; ...`) MUST start on a new line *immediately after* the closing `</thinking>` tag. Do NOT include any other text or preamble between the `</thinking>` tag and `graph TD;`. If no thinking process is included, start directly with `graph TD;`.
-*   The Mermaid definition should be the *only* content after the optional thinking block.
-*   Example of correct output structure with thinking:
-    `<thinking>My reasoning steps...</thinking>`
-    `graph TD;`
-    `  A[Topic1] --> B(SubTopic1.1);`
-    `  A --> C(SubTopic1.2);`
-*   Example of correct output structure without thinking:
-    `graph TD;`
-    `  A[Topic1] --> B(SubTopic1.1);`
-*   Define nodes and connections. Example:
-    `graph TD;`
-    `  id1[Main Topic: Document Title or Core Subject];`
-    `  id1 --> id2(Key Concept A);`
-    `  id1 --> id3(Key Concept B);`
-    `  id2 --> id2_1{{Sub-point A1}};`
-    `  id2 --> id2_2{{Sub-point A2}};`
-    `  id3 --> id3_1{{Sub-point B1}};`
-*   Use unique alphanumeric IDs for nodes (e.g., id1, id2, id2_1). Node IDs cannot contain spaces or special characters other than underscores.
-*   Node text (the visible label) should be concise and enclosed in `[Square brackets for rectangles]`, `(Round brackets for rounded rectangles)`, or `{{Curly braces for diamonds/rhombus shapes}}`. Choose shapes that make sense for the hierarchy.
-*   Focus **strictly** on concepts and relationships mentioned in the text.
-*   Aim for a clear hierarchy, typically 2-4 levels deep, with a reasonable number of branches to keep the mind map readable.
-*   Ensure the entire output intended for the diagram is valid Mermaid syntax starting with `graph TD;`.
+**OUTPUT FORMAT (ABSOLUTELY CRITICAL - FOLLOW EXACTLY):**
+1.  The output **MUST** start **IMMEDIATELY** with the Mermaid mindmap code block (after your thinking block, if you include one). No preamble.
+2.  The entire mindmap diagram **MUST** be enclosed in a single ```mermaid ... ``` code block.
+3.  Inside the code block:
+    a.  The **FIRST line MUST be `mindmap`**.
+    b.  The **SECOND line MUST be the main root topic** of the document, preferably enclosed in `(())`. Example: `  root((Main Document Title or Theme))`
+    c.  **ALL subsequent lines MUST define child or sibling nodes using ONLY indentation (2 or 4 spaces per level).**
+    d.  Node text **SHOULD BE SHORT PHRASES OR KEYWORDS** taken directly from the document.
+    e.  Node text can be plain (e.g., `  Topic A`) or enclosed in `()` for a standard box (e.g., `    (Subtopic A1)`).
+    f.  **ABSOLUTELY NO ARROWS (`->`, `-->`) or other graph/flowchart syntax.**
+    g.  **ABSOLUTELY NO CODE, programming terms, or complex symbols unless they are verbatim from the document text being summarized as a topic.**
+    h.  **DO NOT add any comments (like `%%`) or any text other than node definitions.**
 
-**BEGIN OUTPUT (Follow critical instructions above regarding thinking block and `graph TD;` placement):**
+**VERY STRICT EXAMPLE of CORRECT Mermaid Mindmap Syntax:**
+    ```mermaid
+    mindmap
+      root((Document's Central Theme))
+        Major Section 1
+          Key Point 1.1
+          Key Point 1.2
+            (Detail 1.2.1)
+        Major Section 2
+          (Key Point 2.1)
+    ```
+
+*   Ensure the mindmap structure is simple and strictly reflects the hierarchy of topics in the document.
+*   If the document is very short or has no clear hierarchy, generate a very simple mind map with just a root and a few main points.
+
+**BEGIN OUTPUT (Start with '```mermaid' or `<thinking>`):**
 """
     )
 }
@@ -1473,8 +1512,13 @@ def setup_logging():
     # Suppress excessive logging from noisy libraries if necessary
     logging.getLogger("urllib3").setLevel(logging.WARNING)
     logging.getLogger("httpx").setLevel(logging.WARNING)
+    # Suppress chat history logging from Langchain memory if too verbose
+    logging.getLogger("langchain.memory.buffer").setLevel(LOGGING_LEVEL + 10) # Often INFO, setting +10 makes it WARNING or higher
+    # Suppress Langchain chain logging if too verbose
+    logging.getLogger("langchain.chains").setLevel(LOGGING_LEVEL + 10)
     logging.getLogger("faiss.loader").setLevel(logging.WARNING) # FAISS can be verbose
-    # Add more loggers to suppress as needed
+    logging.getLogger("pdfminer").setLevel(logging.WARNING) # pdfplumber's dependency
+
 
     logger = logging.getLogger(__name__)
     logger.info(f"Logging configured with level {LOGGING_LEVEL_NAME}")
@@ -1483,9 +1527,10 @@ def setup_logging():
     logger.debug(f"OLLAMA_EMBED_MODEL={OLLAMA_EMBED_MODEL}")
     logger.debug(f"FAISS_FOLDER={FAISS_FOLDER}")
     logger.debug(f"UPLOAD_FOLDER={UPLOAD_FOLDER}")
-    logger.debug(f"DATABASE_PATH={DATABASE_PATH}")
+    logger.debug(f"DEFAULT_PDFS_FOLDER={DEFAULT_PDFS_FOLDER}")
     logger.debug(f"RAG_CHUNK_K={RAG_CHUNK_K}, RAG_SEARCH_K_PER_QUERY={RAG_SEARCH_K_PER_QUERY}, MULTI_QUERY_COUNT={MULTI_QUERY_COUNT}")
     logger.debug(f"ANALYSIS_MAX_CONTEXT_LENGTH={ANALYSIS_MAX_CONTEXT_LENGTH}")
+    logger.debug(f"SUMMARY_BUFFER_TOKEN_LIMIT={SUMMARY_BUFFER_TOKEN_LIMIT}")
 ```
 
 `backend/database.py`
@@ -2060,6 +2105,7 @@ httpx
 `backend/static/script.js`
 
 ```javascript
+
 // script.js - Frontend Logic for Local AI Tutor
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -2113,21 +2159,35 @@ document.addEventListener('DOMContentLoaded', () => {
     let isListening = false;
     let statusCheckTimer = null;
     let statusMessageTimerId = null; 
+    let mermaidInitialized = false; 
 
-    if (typeof mermaid !== 'undefined') {
-        mermaid.initialize({
-            startOnLoad: false, 
-            theme: 'dark',      
-            // securityLevel: 'strict', 
-            // logLevel: 'debug', 
-            flowchart: {
-                htmlLabels: true 
-            },
-        });
-        console.log("Mermaid.js initialized.");
-    } else {
-        console.warn("Mermaid.js library not detected on DOMContentLoaded. Mind map rendering will fail.");
+    // --- MERMAID INITIALIZATION ---
+    async function initializeMermaid() {
+        if (window.mermaid && !mermaidInitialized) {
+            try {
+                console.log("Initializing Mermaid.js...");
+                window.mermaid.initialize({
+                    startOnLoad: false,
+                    theme: 'dark',
+                    logLevel: 'warn', 
+                    flowchart: { 
+                        htmlLabels: true
+                    },
+                });
+                await window.mermaid.run({ nodes: [] }); 
+                mermaidInitialized = true;
+                console.log("Mermaid.js initialized successfully.");
+            } catch (e) {
+                console.error("Failed to initialize Mermaid.js:", e);
+                showStatusMessage("Error initializing Mind Map renderer. Mind maps may not display.", "warning");
+            }
+        } else if (mermaidInitialized) {
+            // console.log("Mermaid.js already initialized."); 
+        } else if (!window.mermaid) {
+            console.warn("Mermaid.js library not detected. Mind map rendering will fail. Check script tag in HTML.");
+        }
     }
+    // --- END MERMAID INITIALIZATION ---
 
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     let recognition = null;
@@ -2165,6 +2225,7 @@ document.addEventListener('DOMContentLoaded', () => {
     function initializeApp() {
         console.log("Initializing App...");
         showInitialLoading();
+        initializeMermaid(); 
         setupEventListeners();
         checkBackendStatus(true); 
         if (statusCheckTimer) clearInterval(statusCheckTimer);
@@ -2378,11 +2439,11 @@ document.addEventListener('DOMContentLoaded', () => {
              try { unsafe = String(unsafe); } catch (e) { return ''; }
          }
          return unsafe
-              .replace(/&/g, "&amp;")
+    .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#039;");
+    .replace(/'/g, "&#39;");
       }
 
     function addMessageToChat(sender, text, references = [], thinking = null, messageId = null) {
@@ -2595,11 +2656,25 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    // Function to strip thinking tags from a string (client-side helper)
     function stripThinkingTags(text) {
         if (typeof text !== 'string') return text;
-        const thinkingRegex = /^\s*<thinking>[\s\S]*?<\/thinking>\s*/i;
+        const thinkingRegex = /^\s*<think(ing)?\b[^>]*>[\s\S]*?<\/think(ing)?\s*>\s*/i;
         return text.replace(thinkingRegex, '').trim();
+    }
+
+    // Function to strip Markdown code fences (``` ... ```)
+    function stripMarkdownCodeFences(text) {
+        if (typeof text !== 'string') return text;
+        // Regex to match ``` optionally followed by a language specifier, then content, then ```
+        // Handles cases like ```mermaid ... ``` or just ``` ... ```
+        // It's made to be a bit loose on the content inside to capture the graph
+        const codeFenceRegex = /^\s*```(?:[a-zA-Z0-9]*)?\s*([\s\S]*?)\s*```\s*$/;
+        const match = text.match(codeFenceRegex);
+        if (match && match[1]) {
+            // console.log("Stripped Markdown code fences. Original:\n", text, "\nCleaned:\n", match[1].trim());
+            return match[1].trim(); // Return the content inside the fences
+        }
+        return text; // Return original if no fences found
     }
 
     async function handleAnalysis(analysisType) {
@@ -2652,19 +2727,21 @@ document.addEventListener('DOMContentLoaded', () => {
             
             let analysisContent = result.content || "[No content generated]";
             
-            // For mindmap, explicitly try to strip thinking tags if they are still present in the main content
-            // This is a fallback for LLM inconsistencies.
             if (analysisType === 'mindmap') {
                 const originalContentForLog = analysisContent;
+                // First, strip thinking tags
                 analysisContent = stripThinkingTags(analysisContent);
-                if (analysisContent !== originalContentForLog) {
-                    console.warn("Client-side stripping of <thinking> tags was performed on mindmap content.");
+                // Then, strip Markdown code fences
+                analysisContent = stripMarkdownCodeFences(analysisContent); 
+
+                if (analysisContent !== originalContentForLog) { // Check if any stripping occurred
+                    console.warn("Client-side stripping of <think(ing)> tags and/or Markdown code fences was performed on mindmap content.");
                 }
             }
 
-            console.log("--- Analysis Content for Display ---");
+            console.log("--- Analysis Content for Display (after all stripping) ---");
             console.log("Type:", analysisType);
-            console.log("Content (potentially stripped for mindmap):", analysisContent);
+            console.log("Content:", analysisContent);
             console.log("--- End Analysis Content ---");
 
             analysisOutputContainer.style.display = 'block';
@@ -2679,11 +2756,11 @@ document.addEventListener('DOMContentLoaded', () => {
                     analysisOutput.textContent = analysisContent;
                 }
             } else if (analysisType === 'mindmap') {
-                analysisOutput.innerHTML = `<p class="small">Raw Mermaid.js Code from AI (after potential client-side stripping):</p><pre><code>${escapeHtml(analysisContent)}</code></pre>`;
+                analysisOutput.innerHTML = `<p class="small">Raw Mermaid.js Code (after client-side stripping):</p><pre><code>${escapeHtml(analysisContent)}</code></pre>`;
                 mindmapContainer.style.display = 'block';
                 
                 if (mermaidChartDiv) {
-                    if (typeof mermaid !== 'undefined' && mermaid.run) {
+                    if (typeof mermaid !== 'undefined' && mermaid.run && mermaidInitialized) { 
                         mermaidChartDiv.textContent = analysisContent; 
                         mermaidChartDiv.removeAttribute('data-processed'); 
 
@@ -2692,13 +2769,15 @@ document.addEventListener('DOMContentLoaded', () => {
                             console.log("Mermaid diagram rendered.");
                         } catch (renderError) {
                             console.error("Mermaid rendering error:", renderError);
-                            mermaidChartDiv.innerHTML = `<div class="text-danger p-2"><strong>Mermaid Render Error:</strong><br>${escapeHtml(renderError.message || String(renderError))}<br><small>Check console for details. The AI might have generated invalid Mermaid syntax.</small></div>`;
-                            showStatusMessage(`Mermaid Render Error: ${renderError.message || 'Unknown issue'}.`, 'danger');
+                            const errMessage = renderError.message || String(renderError);
+                            mermaidChartDiv.innerHTML = `<div class="text-danger p-2"><strong>Mermaid Render Error:</strong><br>${escapeHtml(errMessage)}<br><small>Check console. The AI might have generated invalid Mermaid syntax, or the content still includes non-Mermaid text.</small></div>`;
+                            showStatusMessage(`Mermaid Render Error: ${errMessage.substring(0,100)}...`, 'danger');
                         }
                     } else {
-                        console.error("Mermaid.js library or mermaid.run is not available.");
-                        mermaidChartDiv.innerHTML = '<div class="text-danger p-2">Mermaid.js library not loaded. Cannot render mind map.</div>';
-                        showStatusMessage("Mermaid.js library not loaded.", 'danger');
+                        const errText = !mermaidInitialized ? "Mermaid.js not initialized." : "Mermaid.js library or mermaid.run is not available.";
+                        console.error(errText);
+                        mermaidChartDiv.innerHTML = `<div class="text-danger p-2">${errText} Cannot render mind map.</div>`;
+                        showStatusMessage(errText, 'danger');
                     }
                 } else {
                     console.error("Target .mermaid div for mindmap not found.");
@@ -2857,7 +2936,7 @@ document.addEventListener('DOMContentLoaded', () => {
             voiceInputButton.innerHTML = '<i class="fa fa-microphone" aria-hidden="true"></i>'; 
         }
         if (chatStatus && chatStatus.textContent === 'Listening...') {
-             setChatStatus(backendStatus.ai ? 'Ready' : 'AI Offline', backendStatus.ai ? 'muted' : 'warning'); 
+             setChatStatus(canChat ? "Ready" : (isDbReady ? "AI Offline" : "Database Offline"), canChat ? 'success' : 'danger'); 
         }
     }
 
@@ -3363,9 +3442,9 @@ def allowed_file(filename):
 
 def parse_llm_response(full_response: str | None) -> tuple[str, str | None]:
     """
-    Separates thinking content (within <thinking>...</thinking>) from the user-facing answer.
-    Handles potential variations in tagging and whitespace, case-insensitivity.
-    Also handles nested tags or attributes within the thinking tag itself.
+    Separates thinking content (within <think...>...</think> or <thinking...>...</thinking>) 
+    from the user-facing answer.
+    Handles potential variations in tagging and whitespace, case-insensitivity, and attributes.
 
     Args:
         full_response (str | None): The complete response string from the LLM.
@@ -3392,13 +3471,14 @@ def parse_llm_response(full_response: str | None) -> tuple[str, str | None]:
 
     # Regex explanation:
     # \s*                         : Matches optional leading whitespace
-    # <(?i:thinking)\b[^>]*>     : Matches opening tag <thinking...> case-insensitively, allowing attributes like <thinking plan="step1">. \b ensures "thinking" is a whole word.
+    # <(?i:think(?:ing)?)\b[^>]*> : Matches opening tag <think...> or <thinking...> case-insensitively,
+    #                               allowing attributes. \b ensures "think" or "thinking" is a whole word.
+    #                               (?:ing)? makes "ing" optional.
     # (.*?)                     : Captures the content inside (non-greedy) - Group 1
-    # </(?i:thinking)>          : Matches the corresponding closing tag </thinking> case-insensitively
+    # </(?i:think(?:ing)?)>      : Matches the corresponding closing tag </think> or </thinking> case-insensitively
     # \s*                         : Matches optional trailing whitespace
     # re.DOTALL                 : Makes '.' match newline characters
-    # Use non-capturing group (?:...) for the tags themselves if needed, but capture group 1 is for content.
-    pattern = re.compile(r"\s*<(?i:thinking)\b[^>]*>(.*?)</(?i:thinking)>\s*", re.DOTALL)
+    pattern = re.compile(r"\s*<(?i:think(?:ing)?)\b[^>]*>(.*?)</(?i:think(?:ing)?)>\s*", re.DOTALL)
 
     # Find the first match
     thinking_match = pattern.search(full_response)
@@ -3413,13 +3493,11 @@ def parse_llm_response(full_response: str | None) -> tuple[str, str | None]:
         user_answer = pattern.sub('', full_response, count=1).strip()
         # logger.debug("Removed thinking block from user answer.")
 
-        # Check if the user_answer is now empty, meaning the thinking block was the only content
         if not user_answer and thinking_content is not None:
-            logger.warning("LLM response consisted *only* of the <thinking> block. User answer is empty.")
-            # Keep user_answer as "" or set a specific message? Let's keep it empty for now, handled in caller.
+            logger.warning("LLM response consisted *only* of the <thinking> or <think> block. User answer is empty.")
 
     else:
-        # logger.debug("No <thinking> tags found in LLM response.")
+        # logger.debug("No <thinking> or <think> tags found in LLM response.")
         user_answer = full_response.strip() # Ensure stripping even if no tags found
 
     return user_answer, thinking_content
@@ -3524,11 +3602,11 @@ def escape_html(unsafe_str: str | None) -> str:
             return ""
 
     # Perform replacements
-    return unsafe_str.replace('&', '&') \
-                     .replace('<', '<') \
-                     .replace('>', '>') \
-                     .replace('"', '"') \
-                     .replace("'",  '\'') # Use HTML entity for single quote
+    return unsafe_str.replace('&', '&amp;') \
+                     .replace('<', '&lt;') \
+                     .replace('>', '&gt;') \
+                     .replace('"', '&quot;') \
+                     .replace("'", '&#39;') # Use HTML entity for single quote
 # --- END OF FILE utils.py ---
 ```
 

@@ -1,3 +1,4 @@
+
 // script.js - Frontend Logic for Local AI Tutor
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -51,21 +52,35 @@ document.addEventListener('DOMContentLoaded', () => {
     let isListening = false;
     let statusCheckTimer = null;
     let statusMessageTimerId = null; 
+    let mermaidInitialized = false; 
 
-    if (typeof mermaid !== 'undefined') {
-        mermaid.initialize({
-            startOnLoad: false, 
-            theme: 'dark',      
-            // securityLevel: 'strict', 
-            // logLevel: 'debug', 
-            flowchart: {
-                htmlLabels: true 
-            },
-        });
-        console.log("Mermaid.js initialized.");
-    } else {
-        console.warn("Mermaid.js library not detected on DOMContentLoaded. Mind map rendering will fail.");
+    // --- MERMAID INITIALIZATION ---
+    async function initializeMermaid() {
+        if (window.mermaid && !mermaidInitialized) {
+            try {
+                console.log("Initializing Mermaid.js...");
+                window.mermaid.initialize({
+                    startOnLoad: false,
+                    theme: 'dark',
+                    logLevel: 'warn', 
+                    flowchart: { 
+                        htmlLabels: true
+                    },
+                });
+                await window.mermaid.run({ nodes: [] }); 
+                mermaidInitialized = true;
+                console.log("Mermaid.js initialized successfully.");
+            } catch (e) {
+                console.error("Failed to initialize Mermaid.js:", e);
+                showStatusMessage("Error initializing Mind Map renderer. Mind maps may not display.", "warning");
+            }
+        } else if (mermaidInitialized) {
+            // console.log("Mermaid.js already initialized."); 
+        } else if (!window.mermaid) {
+            console.warn("Mermaid.js library not detected. Mind map rendering will fail. Check script tag in HTML.");
+        }
     }
+    // --- END MERMAID INITIALIZATION ---
 
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     let recognition = null;
@@ -103,6 +118,7 @@ document.addEventListener('DOMContentLoaded', () => {
     function initializeApp() {
         console.log("Initializing App...");
         showInitialLoading();
+        initializeMermaid(); 
         setupEventListeners();
         checkBackendStatus(true); 
         if (statusCheckTimer) clearInterval(statusCheckTimer);
@@ -316,11 +332,11 @@ document.addEventListener('DOMContentLoaded', () => {
              try { unsafe = String(unsafe); } catch (e) { return ''; }
          }
          return unsafe
-              .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#039;");
+  .replace(/&amp;/g, "&")
+  .replace(/&lt;/g, "<")
+  .replace(/&gt;/g, ">")
+  .replace(/&quot;/g, '"')
+  .replace(/&#39;/g, "'");
       }
 
     function addMessageToChat(sender, text, references = [], thinking = null, messageId = null) {
@@ -533,11 +549,25 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    // Function to strip thinking tags from a string (client-side helper)
     function stripThinkingTags(text) {
         if (typeof text !== 'string') return text;
-        const thinkingRegex = /^\s*<thinking>[\s\S]*?<\/thinking>\s*/i;
+        const thinkingRegex = /^\s*<think(ing)?\b[^>]*>[\s\S]*?<\/think(ing)?\s*>\s*/i;
         return text.replace(thinkingRegex, '').trim();
+    }
+
+    // Function to strip Markdown code fences (``` ... ```)
+    function stripMarkdownCodeFences(text) {
+        if (typeof text !== 'string') return text;
+        // Regex to match ``` optionally followed by a language specifier, then content, then ```
+        // Handles cases like ```mermaid ... ``` or just ``` ... ```
+        // It's made to be a bit loose on the content inside to capture the graph
+        const codeFenceRegex = /^\s*```(?:[a-zA-Z0-9]*)?\s*([\s\S]*?)\s*```\s*$/;
+        const match = text.match(codeFenceRegex);
+        if (match && match[1]) {
+            // console.log("Stripped Markdown code fences. Original:\n", text, "\nCleaned:\n", match[1].trim());
+            return match[1].trim(); // Return the content inside the fences
+        }
+        return text; // Return original if no fences found
     }
 
     async function handleAnalysis(analysisType) {
@@ -590,19 +620,21 @@ document.addEventListener('DOMContentLoaded', () => {
             
             let analysisContent = result.content || "[No content generated]";
             
-            // For mindmap, explicitly try to strip thinking tags if they are still present in the main content
-            // This is a fallback for LLM inconsistencies.
             if (analysisType === 'mindmap') {
                 const originalContentForLog = analysisContent;
+                // First, strip thinking tags
                 analysisContent = stripThinkingTags(analysisContent);
-                if (analysisContent !== originalContentForLog) {
-                    console.warn("Client-side stripping of <thinking> tags was performed on mindmap content.");
+                // Then, strip Markdown code fences
+                analysisContent = stripMarkdownCodeFences(analysisContent); 
+
+                if (analysisContent !== originalContentForLog) { // Check if any stripping occurred
+                    console.warn("Client-side stripping of <think(ing)> tags and/or Markdown code fences was performed on mindmap content.");
                 }
             }
 
-            console.log("--- Analysis Content for Display ---");
+            console.log("--- Analysis Content for Display (after all stripping) ---");
             console.log("Type:", analysisType);
-            console.log("Content (potentially stripped for mindmap):", analysisContent);
+            console.log("Content:", analysisContent);
             console.log("--- End Analysis Content ---");
 
             analysisOutputContainer.style.display = 'block';
@@ -617,11 +649,11 @@ document.addEventListener('DOMContentLoaded', () => {
                     analysisOutput.textContent = analysisContent;
                 }
             } else if (analysisType === 'mindmap') {
-                analysisOutput.innerHTML = `<p class="small">Raw Mermaid.js Code from AI (after potential client-side stripping):</p><pre><code>${escapeHtml(analysisContent)}</code></pre>`;
+                analysisOutput.innerHTML = `<p class="small">Raw Mermaid.js Code (after client-side stripping):</p><pre><code>${escapeHtml(analysisContent)}</code></pre>`;
                 mindmapContainer.style.display = 'block';
                 
                 if (mermaidChartDiv) {
-                    if (typeof mermaid !== 'undefined' && mermaid.run) {
+                    if (typeof mermaid !== 'undefined' && mermaid.run && mermaidInitialized) { 
                         mermaidChartDiv.textContent = analysisContent; 
                         mermaidChartDiv.removeAttribute('data-processed'); 
 
@@ -630,13 +662,15 @@ document.addEventListener('DOMContentLoaded', () => {
                             console.log("Mermaid diagram rendered.");
                         } catch (renderError) {
                             console.error("Mermaid rendering error:", renderError);
-                            mermaidChartDiv.innerHTML = `<div class="text-danger p-2"><strong>Mermaid Render Error:</strong><br>${escapeHtml(renderError.message || String(renderError))}<br><small>Check console for details. The AI might have generated invalid Mermaid syntax.</small></div>`;
-                            showStatusMessage(`Mermaid Render Error: ${renderError.message || 'Unknown issue'}.`, 'danger');
+                            const errMessage = renderError.message || String(renderError);
+                            mermaidChartDiv.innerHTML = `<div class="text-danger p-2"><strong>Mermaid Render Error:</strong><br>${escapeHtml(errMessage)}<br><small>Check console. The AI might have generated invalid Mermaid syntax, or the content still includes non-Mermaid text.</small></div>`;
+                            showStatusMessage(`Mermaid Render Error: ${errMessage.substring(0,100)}...`, 'danger');
                         }
                     } else {
-                        console.error("Mermaid.js library or mermaid.run is not available.");
-                        mermaidChartDiv.innerHTML = '<div class="text-danger p-2">Mermaid.js library not loaded. Cannot render mind map.</div>';
-                        showStatusMessage("Mermaid.js library not loaded.", 'danger');
+                        const errText = !mermaidInitialized ? "Mermaid.js not initialized." : "Mermaid.js library or mermaid.run is not available.";
+                        console.error(errText);
+                        mermaidChartDiv.innerHTML = `<div class="text-danger p-2">${errText} Cannot render mind map.</div>`;
+                        showStatusMessage(errText, 'danger');
                     }
                 } else {
                     console.error("Target .mermaid div for mindmap not found.");

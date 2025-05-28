@@ -61,7 +61,7 @@ Generated Search Queries:"""
 # RAG Synthesis Prompt (Mandatory Thinking)
 SYNTHESIS_PROMPT_TEMPLATE = PromptTemplate(
     input_variables=["query", "context"],
-    template="""You are an Faculty for engineering students who has inde[th klnowledge in all engineering subjects and am Expert for an academic audience, ranging from undergraduates to PhD scholars. . Your goal is to answer the user's query based on the provided context document chunks, augmented with your general knowledge when necessary. You have to Provide detailed, technical, and well-structured responses suitable for this audience. Use precise terminology, include relevant concepts, algorithms, and applications, and organize your response with sections or bullet points where appropriate.
+    template="""You are an Faculty for engineering students who has in depth klnowledge in all engineering subjects and am Expert for an academic audience, ranging from undergraduates to PhD scholars. . Your goal is to answer the user's query based on the provided context document chunks, augmented with your general knowledge when necessary. You have to Provide detailed, technical, and well-structured responses suitable for this audience. Use precise terminology, include relevant concepts, algorithms, and applications, and organize your response with sections or bullet points where appropriate.
                 
 
 **TASK:** Respond to the user's query using the provided context and your general knowledge.
@@ -141,38 +141,42 @@ ANALYSIS_PROMPTS = {
     "mindmap": PromptTemplate(
         input_variables=["doc_text_for_llm"],
         template=_ANALYSIS_THINKING_PREFIX + """
-**TASK:** Generate a hierarchical mind map structure representing key concepts from the provided text. Output this structure using Mermaid.js graph syntax (specifically `graph TD` for a top-down flowchart).
+**TASK:** Generate a **SIMPLE HIERARCHICAL** mind map diagram using **Mermaid.js MINDMAP syntax**.
+The mind map **MUST ONLY** represent the key topics and their sub-topics as found **DIRECTLY in the provided document text**.
+Do **NOT** include any external knowledge, code snippets, or complex phrasing not present in the document.
 
-**OUTPUT FORMAT (Strict):**
-*   **CRITICAL INSTRUCTION:** If you include a thinking process within `<thinking>...</thinking>` tags, the Mermaid graph definition (`graph TD; ...`) MUST start on a new line *immediately after* the closing `</thinking>` tag. Do NOT include any other text or preamble between the `</thinking>` tag and `graph TD;`. If no thinking process is included, start directly with `graph TD;`.
-*   The Mermaid definition should be the *only* content after the optional thinking block.
-*   Example of correct output structure with thinking:
-    `<thinking>My reasoning steps...</thinking>`
-    `graph TD;`
-    `  A[Topic1] --> B(SubTopic1.1);`
-    `  A --> C(SubTopic1.2);`
-*   Example of correct output structure without thinking:
-    `graph TD;`
-    `  A[Topic1] --> B(SubTopic1.1);`
-*   Define nodes and connections. Example:
-    `graph TD;`
-    `  id1[Main Topic: Document Title or Core Subject];`
-    `  id1 --> id2(Key Concept A);`
-    `  id1 --> id3(Key Concept B);`
-    `  id2 --> id2_1{{Sub-point A1}};`
-    `  id2 --> id2_2{{Sub-point A2}};`
-    `  id3 --> id3_1{{Sub-point B1}};`
-*   Use unique alphanumeric IDs for nodes (e.g., id1, id2, id2_1). Node IDs cannot contain spaces or special characters other than underscores.
-*   Node text (the visible label) should be concise and enclosed in `[Square brackets for rectangles]`, `(Round brackets for rounded rectangles)`, or `{{Curly braces for diamonds/rhombus shapes}}`. Choose shapes that make sense for the hierarchy.
-*   Focus **strictly** on concepts and relationships mentioned in the text.
-*   Aim for a clear hierarchy, typically 2-4 levels deep, with a reasonable number of branches to keep the mind map readable.
-*   Ensure the entire output intended for the diagram is valid Mermaid syntax starting with `graph TD;`.
+**OUTPUT FORMAT (ABSOLUTELY CRITICAL - FOLLOW EXACTLY):**
+1.  The output **MUST** start **IMMEDIATELY** with the Mermaid mindmap code block (after your thinking block, if you include one). No preamble.
+2.  The entire mindmap diagram **MUST** be enclosed in a single ```mermaid ... ``` code block.
+3.  Inside the code block:
+    a.  The **FIRST line MUST be `mindmap`**.
+    b.  The **SECOND line MUST be the main root topic** of the document, preferably enclosed in `(())`. Example: `  root((Main Document Title or Theme))`
+    c.  **ALL subsequent lines MUST define child or sibling nodes using ONLY indentation (2 or 4 spaces per level).**
+    d.  Node text **SHOULD BE SHORT PHRASES OR KEYWORDS** taken directly from the document.
+    e.  Node text can be plain (e.g., `  Topic A`) or enclosed in `()` for a standard box (e.g., `    (Subtopic A1)`).
+    f.  **ABSOLUTELY NO ARROWS (`->`, `-->`) or other graph/flowchart syntax.**
+    g.  **ABSOLUTELY NO CODE, programming terms, or complex symbols unless they are verbatim from the document text being summarized as a topic.**
+    h.  **DO NOT add any comments (like `%%`) or any text other than node definitions.**
 
-**BEGIN OUTPUT (Follow critical instructions above regarding thinking block and `graph TD;` placement):**
+**VERY STRICT EXAMPLE of CORRECT Mermaid Mindmap Syntax:**
+    ```mermaid
+    mindmap
+      root((Document's Central Theme))
+        Major Section 1
+          Key Point 1.1
+          Key Point 1.2
+            (Detail 1.2.1)
+        Major Section 2
+          (Key Point 2.1)
+    ```
+
+*   Ensure the mindmap structure is simple and strictly reflects the hierarchy of topics in the document.
+*   If the document is very short or has no clear hierarchy, generate a very simple mind map with just a root and a few main points.
+
+**BEGIN OUTPUT (Start with '```mermaid' or `<thinking>`):**
 """
     )
 }
-
 
 # --- Logging Setup ---
 def setup_logging():
