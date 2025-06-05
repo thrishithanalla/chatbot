@@ -1,3 +1,4 @@
+# backend/app.py
 # --- START OF FILE app.py ---
 
 import os
@@ -11,7 +12,7 @@ from waitress import serve
 from datetime import datetime, timezone # Correct import
 
 # --- Initialize Logging and Configuration First ---
-import config
+import config # This will now also import CHAT_CONTEXT_BUFFER_SIZE
 config.setup_logging() # Configure logging based on config
 logger = logging.getLogger(__name__) # Get logger for this module
 
@@ -394,8 +395,54 @@ def chat():
     bot_answer = "Sorry, I encountered an issue processing your request." 
     references = []
     thinking_content = None 
+    chat_history_buffer_str = "No recent chat history available for this turn." # Default
 
     try:
+        # --- START: Prepare Chat History Buffer ---
+        if config.CHAT_CONTEXT_BUFFER_SIZE > 0 and not is_new_session:
+            logger.debug(f"Retrieving chat history for session {session_id} to build context buffer (size: {config.CHAT_CONTEXT_BUFFER_SIZE}).")
+            all_session_messages = database.get_messages_by_session(session_id) # This already orders by timestamp ASC
+
+            if all_session_messages:
+                # We want the last N Q/A pairs. Each pair is 2 messages (user, bot).
+                # So, we need the last `CHAT_CONTEXT_BUFFER_SIZE * 2` messages.
+                # Exclude the current user message if it's already in all_session_messages
+                # (it might not be if get_messages_by_session was called before the commit flushed for the current user message)
+                # For simplicity, we'll take the last N*2 messages from history *before* the current user query.
+                # If the current user message (just saved) is in all_session_messages, we filter it out if it's the very last one.
+                
+                history_to_consider = all_session_messages
+                if history_to_consider and user_message_id and history_to_consider[-1]['message_id'] == user_message_id:
+                    history_to_consider = history_to_consider[:-1]
+
+                num_messages_for_buffer = config.CHAT_CONTEXT_BUFFER_SIZE * 2
+                relevant_messages = history_to_consider[-num_messages_for_buffer:]
+
+
+                if relevant_messages:
+                    formatted_history_parts = []
+                    for msg in relevant_messages:
+                        sender_label = "User" if msg['sender'] == 'user' else "AI"
+                        message_text_for_buffer = msg['message_text']
+                        
+                        if msg['sender'] == 'bot':
+                            # Strip potential <thinking> tags from historical bot messages
+                            parsed_answer, _ = utils.parse_llm_response(message_text_for_buffer)
+                            message_text_for_buffer = parsed_answer
+                        
+                        formatted_history_parts.append(f"{sender_label}: {message_text_for_buffer}")
+                    
+                    chat_history_buffer_str = "\n".join(formatted_history_parts)
+                    logger.info(f"Prepared chat history buffer for session {session_id} with {len(relevant_messages)//2} Q/A pairs (approx {len(chat_history_buffer_str)} chars).")
+                    logger.debug(f"Chat history buffer content (first 200 chars):\n{chat_history_buffer_str[:200]}...")
+                else:
+                    logger.debug(f"No relevant messages found to build chat history buffer for session {session_id}.")
+            else:
+                logger.debug(f"No messages found in history for session {session_id} to build buffer.")
+        elif config.CHAT_CONTEXT_BUFFER_SIZE <= 0:
+            logger.debug("Chat context buffer is disabled (CHAT_CONTEXT_BUFFER_SIZE <= 0).")
+        # --- END: Prepare Chat History Buffer ---
+
         context_text = "No specific document context was retrieved or used for this response." 
         context_docs_map = {} 
         if app_vector_store_ready and config.RAG_CHUNK_K > 0:
@@ -414,7 +461,7 @@ def chat():
              context_text = "Document search is disabled; providing general answer."
 
         logger.debug(f"Synthesizing chat response (session: {session_id})...")
-        bot_answer, thinking_content = ai_core.synthesize_chat_response(query, context_text)
+        bot_answer, thinking_content = ai_core.synthesize_chat_response(query, context_text, chat_history_buffer_str) # MODIFIED
         if bot_answer.startswith("Error:") or "encountered an error" in bot_answer:
              logger.error(f"LLM Synthesis failed for session {session_id}. Response: {bot_answer}")
 
@@ -512,6 +559,7 @@ if __name__ == '__main__':
     logger.info(f"  - Ollama URL: {config.OLLAMA_BASE_URL}")
     logger.info(f"  - LLM Model: {config.OLLAMA_MODEL}")
     logger.info(f"  - Embedding Model: {config.OLLAMA_EMBED_MODEL}")
+    logger.info(f"  - Chat Context Buffer Size: {config.CHAT_CONTEXT_BUFFER_SIZE} pairs")
     logger.info(f"Access URLs:")
     logger.info(f"  - Local: http://127.0.0.1:{port} or http://localhost:{port}")
     logger.info(f"  - Network: http://<YOUR_MACHINE_IP>:{port} (Find your IP using 'ip addr' or 'ifconfig')")

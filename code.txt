@@ -14,6 +14,7 @@ OLLAMA_BASE_URL=http://127.0.0.1:11434/
 # Alternative: llama3:8b (Strong general model)
 # Alternative: mistral:7b (Good general model)
 OLLAMA_MODEL=deepseek-r1:1.5b
+
 # OLLAMA_MODEL=llama3:8b
 # OLLAMA_MODEL=llama3.2
 #OLLAMA_MODEL=mistral:7b-instruct
@@ -1290,12 +1291,10 @@ if __name__ == '__main__':
 `backend/config.py`
 
 ```python
-# backend/config.py
 import os
 from dotenv import load_dotenv
 import logging
 from langchain.prompts import PromptTemplate # Import PromptTemplate
-from datetime import timedelta # For JWT expiration
 
 # Load environment variables from .env file in the same directory
 dotenv_path = os.path.join(os.path.dirname(__file__), '.env')
@@ -1305,7 +1304,7 @@ load_dotenv(dotenv_path=dotenv_path)
 
 # Ollama Configuration
 OLLAMA_BASE_URL = os.getenv('OLLAMA_BASE_URL', 'http://localhost:11434')
-OLLAMA_MODEL = os.getenv('OLLAMA_MODEL', 'qwen2.5:14b-instruct') # Default model for generation/analysis
+OLLAMA_MODEL = os.getenv('OLLAMA_MODEL', 'deepseek-r1') # Default model for generation/analysis
 OLLAMA_EMBED_MODEL = os.getenv('OLLAMA_EMBED_MODEL', 'mxbai-embed-large') # Default model for embeddings
 # Optional: Increase Ollama request timeout (in seconds) if needed for long operations
 OLLAMA_REQUEST_TIMEOUT = int(os.getenv('OLLAMA_REQUEST_TIMEOUT', 180)) # Default 3 minutes
@@ -1314,31 +1313,9 @@ OLLAMA_REQUEST_TIMEOUT = int(os.getenv('OLLAMA_REQUEST_TIMEOUT', 180)) # Default
 backend_dir = os.path.dirname(__file__)
 FAISS_FOLDER = os.path.join(backend_dir, os.getenv('FAISS_FOLDER', 'faiss_store'))
 UPLOAD_FOLDER = os.path.join(backend_dir, os.getenv('UPLOAD_FOLDER', 'uploads'))
-# DATABASE_NAME and DATABASE_PATH are likely for a previous SQLite setup, keeping for reference but not used with MongoDB
 DATABASE_NAME = os.getenv('DATABASE_NAME', 'chat_history.db')
 DATABASE_PATH = os.path.join(backend_dir, DATABASE_NAME)
 DEFAULT_PDFS_FOLDER = os.path.join(backend_dir, os.getenv('DEFAULT_PDFS_FOLDER', 'default_pdfs'))
-
-
-# --- MongoDB Configuration ---
-MONGO_URI = os.getenv('MONGO_URI', 'mongodb://localhost:27017/')
-MONGO_DB_NAME = os.getenv('MONGO_DB_NAME', 'ai_tutor_db')
-# MongoDB Collection Names (moved from database.py for central config)
-MONGO_USERS_COLLECTION = "users"
-MONGO_DOCUMENTS_COLLECTION = "documents" # To store metadata about user uploaded documents
-MONGO_CHAT_SESSIONS_COLLECTION = "chat_sessions" # New collection for session metadata/summaries
-MONGO_CHAT_MESSAGES_COLLECTION = "chat_messages" # New collection for message history
-
-
-# --- JWT Configuration ---
-JWT_SECRET_KEY = os.getenv('JWT_SECRET_KEY', '0376a14d75ebca84120a8c73f0fe6886ea2cd790ec0fd6bac71362fc10e4025564730b6fe1901c2dde03bc27c3864aa96979c8ea93bb6e48db2accda38f9d430')
-JWT_ALGORITHM = os.getenv('JWT_ALGORITHM', 'HS256')
-JWT_EXPIRATION_MINUTES = int(os.getenv('JWT_EXPIRATION_MINUTES', 1440)) # Default 24 hours (corrected from 5440)
-JWT_ACCESS_TOKEN_EXPIRES = timedelta(minutes=JWT_EXPIRATION_MINUTES)
-
-# --- Application Specific Constants ---
-GLOBAL_DOC_USER_ID_MARKER = "GLOBAL_DEFAULT_DOCS"
-
 
 # File Handling
 ALLOWED_EXTENSIONS = {'pdf'}
@@ -1350,12 +1327,6 @@ MULTI_QUERY_COUNT = int(os.getenv('MULTI_QUERY_COUNT', 3)) # Number of sub-quest
 
 # Analysis Configuration
 ANALYSIS_MAX_CONTEXT_LENGTH = int(os.getenv('ANALYSIS_MAX_CONTEXT_LENGTH', 8000)) # Max chars for analysis context
-
-# Chat & History Configuration
-# Token limit for ConversationSummaryBufferMemory. Adjust based on LLM context window and desired history length.
-# A value around 500-1000 tokens is often a good balance. Total context is summary + RAG + prompt.
-SUMMARY_BUFFER_TOKEN_LIMIT = int(os.getenv('SUMMARY_BUFFER_TOKEN_LIMIT', 800))
-
 
 # Logging Configuration
 LOGGING_LEVEL_NAME = os.getenv('LOGGING_LEVEL', 'INFO').upper()
@@ -1379,18 +1350,14 @@ Generated Search Queries:"""
 )
 
 
+
 # RAG Synthesis Prompt (Mandatory Thinking)
 SYNTHESIS_PROMPT_TEMPLATE = PromptTemplate(
-    # Added chat_history input variable
-    input_variables=["query", "context", "chat_history"],
-    template="""You are an Faculty for engineering students who has inde[th klnowledge in all engineering subjects and am Expert for an academic audience, ranging from undergraduates to PhD scholars. Your goal is to answer the user's query based on the provided context document chunks, augmented with your general knowledge when necessary. You have to Provide detailed, technical, and well-structured responses suitable for this audience. Use precise terminology, include relevant concepts, algorithms, and applications, and organize your response with sections or bullet points where appropriate.
+    input_variables=["query", "context"],
+    template="""You are an Faculty for engineering students who has in depth klnowledge in all engineering subjects and am Expert for an academic audience, ranging from undergraduates to PhD scholars. . Your goal is to answer the user's query based on the provided context document chunks, augmented with your general knowledge when necessary. You have to Provide detailed, technical, and well-structured responses suitable for this audience. Use precise terminology, include relevant concepts, algorithms, and applications, and organize your response with sections or bullet points where appropriate.
+                
 
-Your conversation history with the user is provided below. Use it to maintain context and provide relevant follow-up.
-
-**CONVERSATION HISTORY:**
-{chat_history}
-
-**TASK:** Respond to the user's query using the provided context, the conversation history, and your general knowledge.
+**TASK:** Respond to the user's query using the provided context and your general knowledge.
 
 **USER QUERY:**
 "{query}"
@@ -1403,9 +1370,9 @@ Your conversation history with the user is provided below. Use it to maintain co
 **INSTRUCTIONS:**
 
 **STEP 1: THINKING PROCESS (MANDATORY):**
-*   **CRITICAL:** Before writing the final answer, first articulate your step-by-step reasoning process for how you will arrive at the answer. Explain how you will use the context, the conversation history, and potentially supplement it with general knowledge.
-*   Use a step-by-step Chain of Thought (CoT) approach to arrive at a logical and accurate answer, and include your reasoning in a <think> tag. Enclose this entire reasoning process   *exclusively* within `<thinking>` and `</thinking>` tags.
-*   Example: `<thinking>The user's current query is X. Checking history, they previously asked about Y. The provided context [1] discusses X. I will use the context to answer X, incorporating the history to ensure consistency and potentially relate X back to Y. I will cite [1] where used.</thinking>`
+*   **CRITICAL:** Before writing the final answer, first articulate your step-by-step reasoning process for how you will arrive at the answer. Explain how you will use the context and potentially supplement it with general knowledge.
+*   Use a step-by-step Chain of Thought (CoT) approach to arrive at a logical and accurate answer, and include your reasoning in a <think> tag.Enclose this entire reasoning process   *exclusively* within `<thinking>` and `</thinking>` tags.
+*   Example: `<thinking>The user asks about X. Context [1] defines X. Context [3] gives an example Z. Context [2] seems less relevant. The context doesn't cover aspect Y, so I will synthesize information from [1] and [3] and then add general knowledge about Y, clearly indicating it's external information.</thinking>`
 *   **DO NOT** put any text before `<thinking>` or after `</thinking>` except for the final answer.
 
 **STEP 2: FINAL ANSWER (After the `</thinking>` tag):**
@@ -1421,9 +1388,9 @@ Your conversation history with the user is provided below. Use it to maintain co
 <thinking>"""
 )
 
-# This definition MUST come before ANALYSIS_PROMPTS
+# Analysis Prompts (Thinking Recommended)
 _ANALYSIS_THINKING_PREFIX = """**STEP 1: THINKING PROCESS (Recommended):**
-*   Before generating the analysis, briefly outline your plan in `<thinking>` tags. Example: `<thinking>Analyzing for Mindmap. Will identify the central theme, main branches, and sub-topics from the text to structure a Mermaid mindmap.</thinking>`
+*   Before generating the analysis, briefly outline your plan in `<thinking>` tags. Example: `<thinking>Analyzing for FAQs. Will scan for key questions and answers presented in the text.</thinking>`
 *   If you include thinking, place the final analysis *after* the `</thinking>` tag.
 
 **STEP 2: ANALYSIS OUTPUT:**
@@ -1504,7 +1471,6 @@ Do **NOT** include any external knowledge, code snippets, or complex phrasing no
     )
 }
 
-
 # --- Logging Setup ---
 def setup_logging():
     """Configures application-wide logging."""
@@ -1512,13 +1478,8 @@ def setup_logging():
     # Suppress excessive logging from noisy libraries if necessary
     logging.getLogger("urllib3").setLevel(logging.WARNING)
     logging.getLogger("httpx").setLevel(logging.WARNING)
-    # Suppress chat history logging from Langchain memory if too verbose
-    logging.getLogger("langchain.memory.buffer").setLevel(LOGGING_LEVEL + 10) # Often INFO, setting +10 makes it WARNING or higher
-    # Suppress Langchain chain logging if too verbose
-    logging.getLogger("langchain.chains").setLevel(LOGGING_LEVEL + 10)
     logging.getLogger("faiss.loader").setLevel(logging.WARNING) # FAISS can be verbose
-    logging.getLogger("pdfminer").setLevel(logging.WARNING) # pdfplumber's dependency
-
+    # Add more loggers to suppress as needed
 
     logger = logging.getLogger(__name__)
     logger.info(f"Logging configured with level {LOGGING_LEVEL_NAME}")
@@ -1527,10 +1488,9 @@ def setup_logging():
     logger.debug(f"OLLAMA_EMBED_MODEL={OLLAMA_EMBED_MODEL}")
     logger.debug(f"FAISS_FOLDER={FAISS_FOLDER}")
     logger.debug(f"UPLOAD_FOLDER={UPLOAD_FOLDER}")
-    logger.debug(f"DEFAULT_PDFS_FOLDER={DEFAULT_PDFS_FOLDER}")
+    logger.debug(f"DATABASE_PATH={DATABASE_PATH}")
     logger.debug(f"RAG_CHUNK_K={RAG_CHUNK_K}, RAG_SEARCH_K_PER_QUERY={RAG_SEARCH_K_PER_QUERY}, MULTI_QUERY_COUNT={MULTI_QUERY_COUNT}")
     logger.debug(f"ANALYSIS_MAX_CONTEXT_LENGTH={ANALYSIS_MAX_CONTEXT_LENGTH}")
-    logger.debug(f"SUMMARY_BUFFER_TOKEN_LIMIT={SUMMARY_BUFFER_TOKEN_LIMIT}")
 ```
 
 `backend/database.py`
@@ -2439,11 +2399,11 @@ document.addEventListener('DOMContentLoaded', () => {
              try { unsafe = String(unsafe); } catch (e) { return ''; }
          }
          return unsafe
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
+  .replace(/&amp;/g, "&")
+  .replace(/&lt;/g, "<")
+  .replace(/&gt;/g, ">")
+  .replace(/&quot;/g, '"')
+  .replace(/&#39;/g, "'");
       }
 
     function addMessageToChat(sender, text, references = [], thinking = null, messageId = null) {
@@ -2936,7 +2896,7 @@ document.addEventListener('DOMContentLoaded', () => {
             voiceInputButton.innerHTML = '<i class="fa fa-microphone" aria-hidden="true"></i>'; 
         }
         if (chatStatus && chatStatus.textContent === 'Listening...') {
-             setChatStatus(canChat ? "Ready" : (isDbReady ? "AI Offline" : "Database Offline"), canChat ? 'success' : 'danger'); 
+             setChatStatus(backendStatus.ai ? 'Ready' : 'AI Offline', backendStatus.ai ? 'muted' : 'warning'); 
         }
     }
 

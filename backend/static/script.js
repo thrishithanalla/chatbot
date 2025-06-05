@@ -1,4 +1,3 @@
-
 // script.js - Frontend Logic for Local AI Tutor
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -53,6 +52,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let statusCheckTimer = null;
     let statusMessageTimerId = null; 
     let mermaidInitialized = false; 
+    let currentSpeechUtterance = null; // To keep track of the current speech
 
     // --- MERMAID INITIALIZATION ---
     async function initializeMermaid() {
@@ -114,6 +114,10 @@ document.addEventListener('DOMContentLoaded', () => {
         console.warn("Speech Recognition not supported by this browser.");
         if (voiceInputButton) voiceInputButton.title = "Voice input not supported by browser";
     }
+
+    // --- Speech Synthesis Setup ---
+    const synth = window.speechSynthesis;
+    let currentlySpeakingButton = null;
 
     function initializeApp() {
         console.log("Initializing App...");
@@ -324,6 +328,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function clearChatHistory() {
         if (chatHistory) chatHistory.innerHTML = '';
+        if (synth && synth.speaking) { // Stop any ongoing speech when clearing history
+            synth.cancel();
+        }
+        currentSpeechUtterance = null;
+        currentlySpeakingButton = null;
     }
 
      function escapeHtml(unsafe) {
@@ -332,11 +341,11 @@ document.addEventListener('DOMContentLoaded', () => {
              try { unsafe = String(unsafe); } catch (e) { return ''; }
          }
          return unsafe
-  .replace(/&amp;/g, "&")
-  .replace(/&lt;/g, "<")
-  .replace(/&gt;/g, ">")
-  .replace(/&quot;/g, '"')
-  .replace(/&#39;/g, "'");
+.replace(/&/g, "&amp;")
+.replace(/</g, "&lt;")
+.replace(/>/g, "&gt;")
+.replace(/"/g, "&quot;")
+.replace(/'/g, "&#39;");
       }
 
     function addMessageToChat(sender, text, references = [], thinking = null, messageId = null) {
@@ -347,8 +356,12 @@ document.addEventListener('DOMContentLoaded', () => {
         const messageWrapper = document.createElement('div');
         messageWrapper.classList.add('message-wrapper', `${sender}-wrapper`);
         if(messageId) messageWrapper.dataset.messageId = messageId;
+        
         const messageDiv = document.createElement('div');
         messageDiv.classList.add('message', sender === 'user' ? 'user-message' : 'bot-message');
+        
+        let textForTTS = text; // Default text for TTS
+
         if (sender === 'bot' && text) {
             try {
                 if (typeof marked === 'undefined') {
@@ -356,22 +369,49 @@ document.addEventListener('DOMContentLoaded', () => {
                     const pre = document.createElement('pre');
                     pre.textContent = text;
                     messageDiv.appendChild(pre); 
+                    textForTTS = text; // Raw text
                 } else {
                     marked.setOptions({ breaks: true, gfm: true, sanitize: false }); 
                     messageDiv.innerHTML = marked.parse(text);
+                    // For TTS, try to get the text content after markdown parsing
+                    // This helps strip markdown syntax for cleaner speech.
+                    textForTTS = messageDiv.textContent || text;
                 }
             } catch (e) {
                 console.error("Error rendering Markdown:", e);
                 const pre = document.createElement('pre');
                 pre.textContent = text; 
                 messageDiv.appendChild(pre);
+                textForTTS = text;
             }
         } else if (text) {
             messageDiv.textContent = text; 
+            textForTTS = text;
         } else {
-            messageDiv.textContent = `[${sender === 'bot' ? 'Empty Bot Response' : 'Empty User Message'}]`;
+            const emptyMsgText = `[${sender === 'bot' ? 'Empty Bot Response' : 'Empty User Message'}]`;
+            messageDiv.textContent = emptyMsgText;
+            textForTTS = emptyMsgText;
         }
         messageWrapper.appendChild(messageDiv);
+
+        // Add TTS button for bot messages
+        if (sender === 'bot' && synth) {
+            const ttsButton = document.createElement('button');
+            ttsButton.classList.add('tts-button');
+            ttsButton.setAttribute('aria-label', 'Play message audio');
+            ttsButton.title = 'Listen to message';
+            ttsButton.innerHTML = '<i class="fa fa-volume-up" aria-hidden="true"></i>';
+            
+            // Store text content directly for TTS to avoid issues with complex HTML
+            const cleanTextForTTS = messageDiv.textContent.trim(); // Get text content after markdown processing
+
+            ttsButton.addEventListener('click', () => {
+                handlePlayTTS(cleanTextForTTS, ttsButton);
+            });
+            messageDiv.appendChild(ttsButton); // Append to messageDiv for positioning
+        }
+
+
         if (sender === 'bot' && thinking) {
             const thinkingDiv = document.createElement('div');
             thinkingDiv.classList.add('message-thinking');
@@ -403,6 +443,74 @@ document.addEventListener('DOMContentLoaded', () => {
         chatHistory.appendChild(messageWrapper);
         chatHistory.scrollTo({ top: chatHistory.scrollHeight, behavior: 'smooth' });
     }
+
+
+    function handlePlayTTS(textToSpeak, buttonElement) {
+        if (!synth) {
+            showStatusMessage("Speech synthesis not supported by this browser.", "warning");
+            return;
+        }
+
+        // If this button is already associated with the speaking utterance, cancel (stop) it.
+        if (synth.speaking && currentlySpeakingButton === buttonElement) {
+            synth.cancel();
+            // UI reset will be handled by onend/onerror of the utterance
+            return;
+        }
+
+        // If another message is speaking, cancel it first.
+        if (synth.speaking) {
+            synth.cancel();
+            // Reset the previously speaking button's UI if it exists
+            if (currentlySpeakingButton) {
+                currentlySpeakingButton.innerHTML = '<i class="fa fa-volume-up" aria-hidden="true"></i>';
+                currentlySpeakingButton.classList.remove('speaking');
+                currentlySpeakingButton.title = 'Listen to message';
+            }
+        }
+        
+        currentSpeechUtterance = new SpeechSynthesisUtterance(textToSpeak);
+        
+        currentSpeechUtterance.onstart = () => {
+            console.log("Speech started for:", textToSpeak.substring(0,30)+"...");
+            buttonElement.innerHTML = '<i class="fa fa-stop" aria-hidden="true"></i>';
+            buttonElement.classList.add('speaking');
+            buttonElement.title = 'Stop listening';
+            currentlySpeakingButton = buttonElement;
+        };
+
+        currentSpeechUtterance.onend = () => {
+            console.log("Speech finished.");
+            if (buttonElement === currentlySpeakingButton) { // Ensure it's the correct button
+                buttonElement.innerHTML = '<i class="fa fa-volume-up" aria-hidden="true"></i>';
+                buttonElement.classList.remove('speaking');
+                buttonElement.title = 'Listen to message';
+                currentlySpeakingButton = null;
+                currentSpeechUtterance = null;
+            }
+        };
+
+        currentSpeechUtterance.onerror = (event) => {
+            console.error("Speech synthesis error:", event.error);
+            showStatusMessage(`Speech error: ${event.error}`, "danger");
+            if (buttonElement === currentlySpeakingButton) {
+                buttonElement.innerHTML = '<i class="fa fa-volume-up" aria-hidden="true"></i>';
+                buttonElement.classList.remove('speaking');
+                buttonElement.title = 'Listen to message';
+                currentlySpeakingButton = null;
+                currentSpeechUtterance = null;
+            }
+        };
+        
+        // Optional: Select a specific voice if desired
+        // const voices = synth.getVoices();
+        // if (voices.length > 0) {
+        // currentSpeechUtterance.voice = voices.find(v => v.lang === 'en-US' && v.name.includes('Google')); // Example
+        // }
+        
+        synth.speak(currentSpeechUtterance);
+    }
+
 
     function updateAnalysisDropdown() {
         if (!analysisFileSelect) return;
@@ -699,6 +807,11 @@ document.addEventListener('DOMContentLoaded', () => {
         const query = chatInput.value.trim();
         if (!query) return;
 
+        // If speech is ongoing, stop it before sending a new message
+        if (synth && synth.speaking) {
+            synth.cancel();
+        }
+
         addMessageToChat('user', query);
         chatInput.value = '';
         setChatStatus('AI Tutor is thinking...'); 
@@ -747,7 +860,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         setChatStatus('Loading history...'); 
         disableChatInput(true);
-        clearChatHistory();
+        clearChatHistory(); // This will also cancel any ongoing speech
         try {
             const response = await fetch(`${API_BASE_URL}/history?session_id=${sid}&t=${Date.now()}`);
              if (!response.ok) {
@@ -797,6 +910,10 @@ document.addEventListener('DOMContentLoaded', () => {
             recognition.stop();
             console.log("Speech recognition stopped manually.");
         } else {
+             // If speech synthesis is ongoing, stop it
+            if (synth && synth.speaking) {
+                synth.cancel();
+            }
             try {
                 recognition.start();
                 startListeningUI();

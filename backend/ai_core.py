@@ -1,3 +1,4 @@
+# backend/ai_core.py
 # --- START OF FILE ai_core.py ---
 
 # Notebook/backend/ai_core.py
@@ -17,7 +18,8 @@ from config import (
     OLLAMA_BASE_URL, OLLAMA_MODEL, OLLAMA_EMBED_MODEL, FAISS_FOLDER,
     DEFAULT_PDFS_FOLDER, UPLOAD_FOLDER, RAG_CHUNK_K, MULTI_QUERY_COUNT,
     ANALYSIS_MAX_CONTEXT_LENGTH, OLLAMA_REQUEST_TIMEOUT, RAG_SEARCH_K_PER_QUERY,
-    SUB_QUERY_PROMPT_TEMPLATE, SYNTHESIS_PROMPT_TEMPLATE, ANALYSIS_PROMPTS
+    SUB_QUERY_PROMPT_TEMPLATE, SYNTHESIS_PROMPT_TEMPLATE, ANALYSIS_PROMPTS,
+    CHAT_CONTEXT_BUFFER_SIZE # Import new config
 )
 from utils import parse_llm_response, escape_html # Added escape_html for potential use
 
@@ -497,11 +499,16 @@ def perform_rag_search(query: str) -> tuple[list[Document], str, dict[int, dict]
     # Return the list of Document objects, the formatted text for the LLM, and the citation map
     return context_docs, formatted_context_text, context_docs_map
 
-# --- MODIFIED: Added logging ---
-def synthesize_chat_response(query: str, context_text: str) -> tuple[str, str | None]:
+# --- MODIFIED: Added chat_history_buffer argument and logic ---
+def synthesize_chat_response(query: str, context_text: str, chat_history_buffer: str) -> tuple[str, str | None]:
     """
-    Generates the final chat response using the LLM, query, and context.
+    Generates the final chat response using the LLM, query, context, and chat history.
     Requests and parses thinking/reasoning content using SYNTHESIS_PROMPT_TEMPLATE.
+
+    Args:
+        query (str): The current user query.
+        context_text (str): The RAG context text.
+        chat_history_buffer (str): Formatted string of recent chat history.
 
     Returns:
         tuple[str, str | None]: (user_answer, thinking_content)
@@ -512,15 +519,25 @@ def synthesize_chat_response(query: str, context_text: str) -> tuple[str, str | 
         return "Error: The AI model is currently unavailable.", None
 
     # Use the prompt template from config
-    # Ensure the prompt template is correctly formatted and expects 'query' and 'context'
+    # Ensure the prompt template is correctly formatted and expects 'query', 'context', and 'chat_history'
     try:
-        final_prompt = SYNTHESIS_PROMPT_TEMPLATE.format(query=query, context=context_text)
+        # Ensure chat_history_buffer is not None, default to a neutral string if it is
+        chat_history_for_prompt = chat_history_buffer if chat_history_buffer is not None else "No recent chat history available for this turn."
+
+        final_prompt = SYNTHESIS_PROMPT_TEMPLATE.format(
+            query=query,
+            context=context_text,
+            chat_history=chat_history_for_prompt # Pass the history buffer
+        )
         # Log the prompt before sending
         logger.info(f"Sending synthesis prompt to LLM (model: {OLLAMA_MODEL})...")
-        logger.debug(f"Synthesis Prompt (Start):\n{final_prompt[:200]}...") # Log more chars if needed
+        # Log more chars if needed, especially for the history part
+        log_prompt_start = f"Chat History (approx {len(chat_history_for_prompt)} chars):\n{chat_history_for_prompt[:150]}...\n\nUser Query: {query[:100]}...\n\nContext (approx {len(context_text)} chars):\n{context_text[:150]}..."
+        logger.debug(f"Synthesis Prompt Details (Start):\n{log_prompt_start}")
+
 
     except KeyError as e:
-        logger.error(f"Error formatting SYNTHESIS_PROMPT_TEMPLATE: Missing key {e}. Check config.py.")
+        logger.error(f"Error formatting SYNTHESIS_PROMPT_TEMPLATE: Missing key {e}. Check config.py and ensure 'chat_history' is included if used.")
         return "Error: Internal prompt configuration issue.", None
     except Exception as e:
          logger.error(f"Error creating synthesis prompt: {e}", exc_info=True)
