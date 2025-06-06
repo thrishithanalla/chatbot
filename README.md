@@ -6,9 +6,9 @@
 |----------------------|--------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | Mukesh Manepalli     | @MukeshManepalli   | Deep thinking (Chain of Thought – response generation by analyzing query in different perspectives and giving the final answer)                                          |
 | Thrishitha Nalla     | @trishitanalla     | Implemented Text-To-Speech (TTS) option, changed Speech-To-Text model to OpenAI  .  
-
+|
 | Aakhil Mohammad      | @AakhilMohammad    | Added web search functionality, improves AI responses          
-
+|
 |                      |                    | ContextBuffer-conversational buffer memory , user authentication and otp features (upcoming updates)
 
 changes done until now :
