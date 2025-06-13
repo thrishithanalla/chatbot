@@ -3,6 +3,8 @@ import logging
 import json
 import os
 from config import ALLOWED_EXTENSIONS
+from duckduckgo_search import DDGS
+import logging
 
 logger = logging.getLogger(__name__)
 
@@ -160,6 +162,19 @@ def extract_references(answer_text: str, context_docs_map: dict[int, dict]) -> l
 
     logger.info(f"Extracted {len(references)} unique source references from answer.")
     return references
+
+def search_duckduckgo(query: str, max_results: int = 5):
+    """Search DuckDuckGo and return results."""
+    try:
+        with DDGS() as ddgs:
+            return [{
+                "title": r.get("title", "No Title"),
+                "url": r.get("href", "#"),
+                "snippet": r.get("body", "No Description")
+            } for r in ddgs.text(query, max_results=max_results)]
+    except Exception as e:
+        logging.error(f"DuckDuckGo search failed: {e}", exc_info=True)
+        return []
 
 def escape_html(unsafe_str: str | None) -> str:
     """Basic HTML escaping for displaying text safely in HTML templates/JS."""
