@@ -8,6 +8,7 @@ import openai # Added for Whisper API
 from werkzeug.utils import secure_filename
 from waitress import serve
 from datetime import datetime, timezone # Correct import
+from utils import search_duckduckgo
 
 # --- Initialize Logging and Configuration First ---
 import config # This will now also import CHAT_CONTEXT_BUFFER_SIZE
@@ -550,7 +551,15 @@ def chat():
             "references": []
         }), 500
 
+@app.route('/websearch', methods=['GET'])
+def handle_websearch():
+    query = request.args.get('q', '')
+    if not query:
+        return jsonify({"error": "Missing query"}), 400
 
+    results = search_duckduckgo(query)
+    return jsonify({"results": results})
+    
 @app.route('/history', methods=['GET'])
 def get_history():
     session_id = request.args.get('session_id')
