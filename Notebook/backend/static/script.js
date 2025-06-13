@@ -980,7 +980,38 @@ document.addEventListener('DOMContentLoaded', () => {
              setChatStatus(backendStatus.ai ? 'Ready' : 'AI Offline', backendStatus.ai ? 'muted' : 'warning'); 
         }
     }
-
+    const webSearchButton = document.getElementById('websearch-button');
+    if (webSearchButton) {
+        webSearchButton.addEventListener('click', async () => {
+            const query = chatInput?.value?.trim();
+            if (!query) return alert("Enter a question first.");
+    
+            webSearchButton.disabled = true;
+            webSearchButton.textContent = "Searching...";
+    
+            try {
+                const response = await fetch(`/websearch?q=${encodeURIComponent(query)}`);
+                const data = await response.json();
+    
+                if (data?.results?.length > 0) {
+                    const html = data.results.map(r => `
+                        <p><strong>${escapeHtml(r.title)}</strong><br>
+                        <a href="${r.url}" target="_blank">${r.url}</a><br>
+                        ${escapeHtml(r.snippet)}</p>
+                    `).join('');
+                    addMessageToChat('bot', `🌐 <b>Web Search Results for:</b> <i>${escapeHtml(query)}</i><br>${html}`);
+                } else {
+                    addMessageToChat('bot', "⚠️ No web results found.");
+                }
+            } catch (err) {
+                console.error("Web search error:", err);
+                addMessageToChat('bot', "❌ Failed to perform web search.");
+            } finally {
+                webSearchButton.disabled = false;
+                webSearchButton.textContent = "Search from Web 🌐";
+            }
+        });
+    }
     initializeApp();
 
 }); // End DOMContentLoaded
