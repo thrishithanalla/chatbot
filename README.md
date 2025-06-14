@@ -122,3 +122,14 @@ A smart, interactive platform designed to enhance engineering education and rese
 To verify Ollama model accessibility independently:
 ```bash
 python Ollama_unittest.py
+
+
+
+| Teammate Name    | GitHub / ID      | Major Contributions                                                                                                             |
+| ---------------- | ---------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| Aakhil Mohammad  | @AakhilMohammad  | Added web search functionality (using duck-duck-go)                                                                      |
+|                  |                  | improvised AI responses                                                                   |
+| Thrishitha Nalla | @trishitanalla   | Implemented Text-To-Speech (TTS) option, changed Speech-To-Text model to OpenAI                                                 |
+|                  |                  | Added mind map feature                                                                                                          |
+| Tejaswini Garaka | @Tejaswini-23    | Added login/register authentication and MongoDB connection                                                                      |
+| Mukesh Manepalli | @MukeshManepalli | Deep thinking (Chain of Thought – response generation by analyzing query in different perspectives and giving the final answer) |
