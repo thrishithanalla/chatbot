@@ -55,7 +55,7 @@ A smart, interactive platform designed to enhance engineering education and rese
 
 | Teammate Name    | GitHub / ID      | Major Contributions                                                                                                             |
 | ---------------- | ---------------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| Aakhil Mohammad  | @AakhilMohammad  | Added web search functionality (using DuckDuckGo).                                                                                |
+| Aakhil Mohammad  | @Aakhil-Mohammad  | Added web search functionality (using DuckDuckGo).                                                                                |
 |                  |                  | Improvised AI responses.                                                                                                        |
 | Thrishitha Nalla | @trishitanalla   | Implemented Text-To-Speech (TTS) option. Changed Speech-To-Text model to OpenAI Whisper (or browser's Web Speech API as fallback). |
 |                  |                  | Added mind map feature.                                                                                                         |
