@@ -10,12 +10,12 @@ A smart, interactive platform designed to enhance engineering education and rese
 
 ---
 
-## 🧠 Key Features
+## 🌟 Key Features
 
 1.  **Conversational AI with RAG & Chain-of-Thought (CoT)**
     *   Answers queries based on user-uploaded PDF documents using a Retrieval-Augmented Generation pipeline.
     *   Powered by local Large Language Models (LLMs) through Ollama (e.g., `deepseek-r1:1.5b` for generation, `mxbai-embed-large` for embeddings).
-    *   Displays the AI's step-by-step Chain-of-Thought (CoT) reasoning for transparency in both chat and analysis.
+    *   Displays the AI's step-by-step Chain-of-Thought (CoT) reasoning for transparency in both chat and analysis, enabling deeper understanding of how the AI arrives at its answers.
     *   Automatically cites sources from the documents within its responses.
     *   **Core Backend Packages**: `langchain`, `langchain-community`, `langchain-ollama`, `faiss-cpu`, `ollama`, `pymupdf`.
 
@@ -31,7 +31,7 @@ A smart, interactive platform designed to enhance engineering education and rese
     *   Provides a clear list of available default and uploaded documents for analysis and chat.
 
 4.  **Interactive UI with Enhanced Voice Capabilities**
-    *   **Speech-to-Text (STT)**: Utilizes the browser's built-in Web Speech API to convert spoken user queries into text input.
+    *   **Speech-to-Text (STT)**: Utilizes the browser's built-in Web Speech API (potentially with future integration for models like OpenAI Whisper) to convert spoken user queries into text input.
     *   **Text-to-Speech (TTS)**: Reads the AI's chat responses aloud using the browser's Web Speech API. A speaker icon is provided next to bot messages to trigger TTS.
     *   **UI Framework**: Bootstrap 5, custom CSS for a responsive dark theme.
 
@@ -45,6 +45,22 @@ A smart, interactive platform designed to enhance engineering education and rese
     *   Passwords are securely hashed using Flask-Bcrypt.
     *   User account information is managed using MongoDB.
     *   **Authentication Packages**: `flask-bcrypt`, `pymongo`.
+
+7.  **(Planned/In Development) Web Search Integration**
+    *   Functionality to augment AI responses with real-time information from the web (e.g., using DuckDuckGo).
+
+---
+
+## 🤝 Team Contributions
+
+| Teammate Name    | GitHub / ID      | Major Contributions                                                                                                             |
+| ---------------- | ---------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| Aakhil Mohammad  | @AakhilMohammad  | Added web search functionality (using DuckDuckGo).                                                                                |
+|                  |                  | Improvised AI responses.                                                                                                        |
+| Thrishitha Nalla | @trishitanalla   | Implemented Text-To-Speech (TTS) option. Changed Speech-To-Text model to OpenAI Whisper (or browser's Web Speech API as fallback). |
+|                  |                  | Added mind map feature.                                                                                                         |
+| Tejaswini Garaka | @Tejaswini-23    | Added login/register authentication and MongoDB connection.                                                                     |
+| Mukesh Manepalli | @MukeshManepalli | Implemented Deep thinking (Chain of Thought – response generation by analyzing query in different perspectives and giving the final answer). |
 
 ---
 
@@ -82,7 +98,7 @@ A smart, interactive platform designed to enhance engineering education and rese
     # Install Python packages
     pip install -r requirements.txt
     ```
-    *Ensure `requirements.txt` includes: `flask`, `flask-cors`, `waitress`, `python-dotenv`, `langchain`, `langchain-community`, `langchain-ollama`, `ollama`, `faiss-cpu`, `pymupdf`, `tiktoken`, `requests`, `httpx`, `flask-bcrypt`, `pymongo`.*
+    *Ensure `requirements.txt` includes: `flask`, `flask-cors`, `waitress`, `python-dotenv`, `langchain`, `langchain-community`, `langchain-ollama`, `ollama`, `faiss-cpu`, `pymupdf`, `tiktoken`, `requests`, `httpx`, `flask-bcrypt`, `pymongo`. (Add `duckduckgo-search` if Aakhil's web search is implemented in Python).*
 
 3.  **Configure Environment Variables**
     *   Rename `backend/.env.txt` to `backend/.env`.
@@ -122,14 +138,3 @@ A smart, interactive platform designed to enhance engineering education and rese
 To verify Ollama model accessibility independently:
 ```bash
 python Ollama_unittest.py
-
-
-
-| Teammate Name    | GitHub / ID      | Major Contributions                                                                                                             |
-| ---------------- | ---------------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| Aakhil Mohammad  | @AakhilMohammad  | Added web search functionality (using duck-duck-go)                                                                      |
-|                  |                  | improvised AI responses                                                                   |
-| Thrishitha Nalla | @trishitanalla   | Implemented Text-To-Speech (TTS) option, changed Speech-To-Text model to OpenAI                                                 |
-|                  |                  | Added mind map feature                                                                                                          |
-| Tejaswini Garaka | @Tejaswini-23    | Added login/register authentication and MongoDB connection                                                                      |
-| Mukesh Manepalli | @MukeshManepalli | Deep thinking (Chain of Thought – response generation by analyzing query in different perspectives and giving the final answer) |
